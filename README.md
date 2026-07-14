@@ -2,6 +2,8 @@
 
 <p align="center"><img src="docs/demo.gif" width="320" alt="Fetch arm picking up the block and placing it on the target"></p>
 
+<p align="center"><b>🔴 Live demo: <a href="https://lang2act.streamlit.app">lang2act.streamlit.app</a></b> — step through real agent runs, or drive the robot yourself.</p>
+
 **Natural-language goal in → robot motion out.** A multi-agent system that
 drives a simulated Fetch robot arm (MuJoCo) from plain-English instructions,
 powered entirely by an **open-weights vision-language model served locally** —
