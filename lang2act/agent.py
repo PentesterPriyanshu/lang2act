@@ -80,10 +80,17 @@ class EpisodeResult:
 
 
 class Agent:
-    def __init__(self, llm: LLMClient, trace: Trace, max_steps: int = 12):
+    def __init__(
+        self,
+        llm: LLMClient,
+        trace: Trace,
+        max_steps: int = 12,
+        step_callback=None,  # called as step_callback(step, action, result) after each dispatch
+    ):
         self.llm = llm
         self.trace = trace
         self.max_steps = max_steps
+        self.step_callback = step_callback
         self._calls = 0
         self._llm_time = 0.0
         self._ptok = 0
@@ -144,6 +151,8 @@ class Agent:
 
             result: ToolResult = dispatch(robot, action)
             self.trace.log("result", step=step, text=result.text)
+            if self.step_callback is not None:
+                self.step_callback(step, action, result)
             if result.is_done:
                 return step, True
             if result.image is not None:
