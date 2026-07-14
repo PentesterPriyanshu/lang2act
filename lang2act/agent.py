@@ -53,10 +53,12 @@ Example action (one JSON object, nothing else):
 Ground rules:
 - Positions are metres in the world frame; the numeric state is authoritative.
 - go_to always needs numeric x, y, z copied from the state readout.
-- To grasp: open_gripper, go_to the block's exact (x, y, z), close_gripper.
-- To place: go_to the target (x, y, z) while holding, then open_gripper.
+- To grasp: open_gripper, go_to a block's exact (x, y, z), close_gripper.
+- To place: go_to the destination (x, y, z) while holding, then open_gripper.
 - After open/close, the result message tells you whether the grasp held.
-- Call done(reason) as soon as the block is at the target.
+- Call done(reason) as soon as the task is complete.
+
+{guidance}
 
 Your plan:
 {plan}
@@ -118,7 +120,8 @@ class Agent:
                     image_content(robot.camera()),
                     text_content(
                         f"Task: {task}\n\nScene state:\n{robot.state_text()}\n\n"
-                        f"The robot has these skills:\n{TOOL_DOCS}"
+                        f"The robot has these skills:\n{TOOL_DOCS}\n"
+                        f"{getattr(robot, 'guidance', '')}"
                     ),
                 ]},
             ],
@@ -130,7 +133,9 @@ class Agent:
     def execute(self, task: str, plan: list[str], robot: Robot) -> tuple[int, bool]:
         """Run the tool loop. Returns (executor_steps, model_called_done)."""
         system = EXECUTOR_SYSTEM.format(
-            tool_docs=TOOL_DOCS, plan="\n".join(f"{i+1}. {s}" for i, s in enumerate(plan))
+            tool_docs=TOOL_DOCS,
+            guidance=getattr(robot, "guidance", ""),
+            plan="\n".join(f"{i+1}. {s}" for i, s in enumerate(plan)),
         )
         history: list[tuple[str, str, bool]] = []  # (action_json, result_text, had_image)
         latest_frame = robot.camera()

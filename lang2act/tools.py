@@ -20,10 +20,6 @@ Available tools:
 - open_gripper(): open the fingers.
 - close_gripper(): close the fingers (grasp whatever is between them).
 - done(reason): finish the episode and report what you achieved.
-
-Important: if the target z is above the table surface (z > 0.47), the block
-must be HELD at the target — do not open the gripper or it will fall. Call
-done() while holding it in place. Only release for table-level targets.
 """
 
 # Discriminated union: picking a tool forces that tool's arguments, so the

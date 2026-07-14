@@ -82,6 +82,16 @@ class Robot:
         # two finger joint positions; sum ≈ 0.10 fully open, ≈ 0.0 closed
         return float(self._obs["observation"][9:11].sum())
 
+    @property
+    def guidance(self) -> str:
+        """Task-family-specific rules injected into the agent prompts."""
+        return (
+            "If the target z is above the table surface (z > 0.47), the block "
+            "must be HELD at the target — do not open the gripper or it will "
+            "fall. Call done() while holding it in place. Only release for "
+            "table-level targets."
+        )
+
     def is_success(self) -> bool:
         return bool(self._last_info.get("is_success", False))
 

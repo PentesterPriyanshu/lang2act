@@ -1,15 +1,16 @@
 """Record real agent episodes into replayable bundles for the demo Space.
 
-For each seed: runs the actual planner/executor/verifier agent against the
-local model server, capturing every camera frame during motion plus the
-agent's thought/action/result at each step.
+For each (task, seed): runs the actual planner/executor/verifier agent
+against the local model server, capturing every camera frame during motion
+plus the agent's thought/action/result at each step.
 
-Output per episode: space/assets/ep_<seed>/
+Output per episode: space/assets/ep_<task>_<seed>/
     episode.json   plan, steps (with frame ranges), verdict, metrics
     f<NNNN>.jpg    all motion frames, step-aligned
 
 Run (llama-server must be up):
-    .venv/bin/python -m space.record_episode --seeds 0 1 2
+    .venv/bin/python -m space.record_episode --task stack --seeds 0 1 2
+    .venv/bin/python -m space.record_episode --task pickplace --seeds 0
 """
 
 from __future__ import annotations
@@ -22,37 +23,49 @@ import numpy as np
 from PIL import Image
 
 from lang2act.agent import Agent
+from lang2act.blocks_robot import TASKS, BlocksRobot
 from lang2act.llm import LLMClient
 from lang2act.robot import Robot
 from lang2act.trace import Trace
 
-TASK = "pick up the block and place it on the target marker"
+PICKPLACE_TASK = "pick up the block and place it on the target marker"
 CAPTURE_EVERY = 2
 SIZE = 384
 
 
-class FrameRobot(Robot):
-    frames: list
+def _recording(base):
+    """Robot subclass that captures frames during motion."""
 
-    def __post_init__(self):
-        self.frames = []
-        super().__post_init__()
-        self.frames.append(self.camera())
+    class FrameRobot(base):
+        frames: list
 
-    def _step(self, action: np.ndarray) -> None:
-        super()._step(action)
-        if self.steps_taken % CAPTURE_EVERY == 0:
+        def __post_init__(self):
+            self.frames = []
+            super().__post_init__()
             self.frames.append(self.camera())
 
+        def _step(self, action: np.ndarray) -> None:
+            super()._step(action)
+            if self.steps_taken % CAPTURE_EVERY == 0:
+                self.frames.append(self.camera())
 
-def record(seed: int, out_root: Path) -> dict:
-    out = out_root / f"ep_{seed}"
+    return FrameRobot
+
+
+def record(task: str, seed: int, out_root: Path) -> dict:
+    out = out_root / f"ep_{task}_{seed}" if task != "pickplace" else out_root / f"ep_{seed}"
     out.mkdir(parents=True, exist_ok=True)
 
     llm = LLMClient()
     assert llm.health(), "llama-server is not up — run scripts/serve.sh"
 
-    robot = FrameRobot(seed=seed)
+    if task == "pickplace":
+        robot = _recording(Robot)(seed=seed)
+        task_text, max_steps = PICKPLACE_TASK, 12
+    else:
+        robot = _recording(BlocksRobot)(seed=seed, task=task)
+        task_text, max_steps = robot.task_text, robot.max_steps
+
     steps: list[dict] = []
     last_idx = 0
 
@@ -70,8 +83,9 @@ def record(seed: int, out_root: Path) -> dict:
         })
         last_idx = len(robot.frames) - 1
 
-    agent = Agent(llm, Trace(out / "trace.jsonl"), step_callback=on_step)
-    r = agent.run_episode(TASK, robot)
+    agent = Agent(llm, Trace(out / "trace.jsonl"), max_steps=max_steps,
+                  step_callback=on_step)
+    r = agent.run_episode(task_text, robot)
 
     for i, f in enumerate(robot.frames):
         img = Image.fromarray(f)
@@ -80,7 +94,8 @@ def record(seed: int, out_root: Path) -> dict:
 
     episode = {
         "seed": seed,
-        "task": TASK,
+        "task_id": task,
+        "task": task_text,
         "plan": r.plan,
         "steps": steps,
         "n_frames": len(robot.frames),
@@ -94,18 +109,20 @@ def record(seed: int, out_root: Path) -> dict:
     }
     (out / "episode.json").write_text(json.dumps(episode, indent=2))
     robot.close()
-    print(f"seed {seed}: env={'OK' if r.env_success else 'FAIL'} "
+    print(f"{task} seed {seed}: env={'OK' if r.env_success else 'FAIL'} "
           f"steps={len(steps)} frames={len(robot.frames)} wall={r.wall_time_s}s")
     return episode
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2])
+    parser.add_argument("--task", default="stack",
+                        choices=["pickplace", *TASKS.keys()])
+    parser.add_argument("--seeds", type=int, nargs="+", default=[0])
     args = parser.parse_args()
     out_root = Path(__file__).parent / "assets"
     for seed in args.seeds:
-        record(seed, out_root)
+        record(args.task, seed, out_root)
     return 0
 
 

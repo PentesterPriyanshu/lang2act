@@ -16,18 +16,22 @@ import statistics
 from pathlib import Path
 
 from lang2act.agent import Agent
+from lang2act.blocks_robot import TASKS, BlocksRobot
 from lang2act.llm import LLMClient
 from lang2act.robot import Robot
 from lang2act.trace import Trace
 
-TASK = "pick up the block and place it on the target marker"
+PICKPLACE_TASK = "pick up the block and place it on the target marker"
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--episodes", type=int, default=10)
-    parser.add_argument("--max-steps", type=int, default=12)
-    parser.add_argument("--out", default="eval/results.json")
+    parser.add_argument("--task", default="pickplace",
+                        choices=["pickplace", *TASKS.keys()])
+    parser.add_argument("--max-steps", type=int, default=0,
+                        help="0 = task default")
+    parser.add_argument("--out", default="")
     args = parser.parse_args()
 
     llm = LLMClient()
@@ -35,10 +39,14 @@ def main() -> int:
 
     results = []
     for ep in range(args.episodes):
-        trace = Trace(Path(f"traces/eval_ep{ep:03d}.jsonl"))
-        robot = Robot(seed=ep)
-        agent = Agent(llm, trace, max_steps=args.max_steps)
-        r = agent.run_episode(TASK, robot)
+        trace = Trace(Path(f"traces/eval_{args.task}_ep{ep:03d}.jsonl"))
+        if args.task == "pickplace":
+            robot, task_text, max_steps = Robot(seed=ep), PICKPLACE_TASK, 12
+        else:
+            robot = BlocksRobot(seed=ep, task=args.task)
+            task_text, max_steps = robot.task_text, robot.max_steps
+        agent = Agent(llm, trace, max_steps=args.max_steps or max_steps)
+        r = agent.run_episode(task_text, robot)
         robot.close()
         results.append(r.__dict__)
         print(f"ep {ep:02d}: env={'OK' if r.env_success else 'fail'} "
@@ -50,7 +58,7 @@ def main() -> int:
     ver_agree = sum(r["env_success"] == r["verifier_success"] for r in results) / n
     summary = {
         "episodes": n,
-        "task": TASK,
+        "task": args.task,
         "success_rate": env_rate,
         "verifier_agreement": ver_agree,
         "mean_wall_s": round(statistics.mean(r["wall_time_s"] for r in results), 1),
@@ -60,8 +68,9 @@ def main() -> int:
             statistics.mean(r["completion_tokens"] for r in results)),
         "results": results,
     }
-    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-    Path(args.out).write_text(json.dumps(summary, indent=2))
+    out = Path(args.out or f"eval/results_{args.task}.json")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(summary, indent=2))
 
     print("\n| metric | value |")
     print("|---|---|")
@@ -72,7 +81,7 @@ def main() -> int:
     print(f"| mean LLM calls / episode | {summary['mean_llm_calls']} |")
     print(f"| mean tokens / episode | {summary['mean_prompt_tokens']}"
           f"+{summary['mean_completion_tokens']} |")
-    print(f"\nwritten to {args.out}")
+    print(f"\nwritten to {out}")
     return 0
 
 
