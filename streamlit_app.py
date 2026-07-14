@@ -130,13 +130,26 @@ with drive_tab:
     )
 
     @st.cache_resource
-    def robot_factory():
-        # one sim per server process; reset per interaction session
-        from lang2act.robot import Robot
-        return Robot(seed=None, render_width=384, render_height=384)
+    def sim_worker():
+        # OpenGL contexts are thread-bound, and Streamlit runs each rerun on
+        # a different thread — rendering from any thread other than the one
+        # that created the context yields black frames. Pin the sim (creation
+        # AND every call) to one dedicated worker thread.
+        from concurrent.futures import ThreadPoolExecutor
+        ex = ThreadPoolExecutor(max_workers=1)
+
+        def make():
+            from lang2act.robot import Robot
+            return Robot(seed=None, render_width=384, render_height=384)
+
+        robot = ex.submit(make).result()
+        return robot, ex
 
     try:
-        robot = robot_factory()
+        robot, _sim_ex = sim_worker()
+
+        def sim(fn, *args):
+            return _sim_ex.submit(fn, *args).result()
     except Exception as e:  # rendering backend missing etc.
         st.error(f"live sim unavailable on this host: {e}")
         robot = None
@@ -148,27 +161,27 @@ with drive_tab:
         controls, view = st.columns([1, 2])
         with controls:
             if st.button("🔄 new scene", width='stretch'):
-                robot.reset()
+                sim(robot.reset)
                 st.session_state.drive_msg = "*New scene. Get the block onto the red target.*"
             if st.button("go to block", width='stretch'):
                 o = robot.object_pos
-                st.session_state.drive_msg = f"`go_to(block)` → {robot.go_to(o[0], o[1], o[2])}"
+                st.session_state.drive_msg = f"`go_to(block)` → {sim(robot.go_to, o[0], o[1], o[2])}"
             if st.button("go to target", width='stretch'):
                 t = robot.goal_pos
-                st.session_state.drive_msg = f"`go_to(target)` → {robot.go_to(t[0], t[1], t[2])}"
+                st.session_state.drive_msg = f"`go_to(target)` → {sim(robot.go_to, t[0], t[1], t[2])}"
             c1, c2 = st.columns(2)
             if c1.button("open grip", width='stretch'):
-                st.session_state.drive_msg = f"→ {robot.open_gripper()}"
+                st.session_state.drive_msg = f"→ {sim(robot.open_gripper)}"
             if c2.button("close grip", width='stretch'):
-                st.session_state.drive_msg = f"→ {robot.close_gripper()}"
+                st.session_state.drive_msg = f"→ {sim(robot.close_gripper)}"
             st.markdown("**manual go_to (metres):**")
             x = st.number_input("x", value=1.34, step=0.01, format="%.2f")
             y = st.number_input("y", value=0.75, step=0.01, format="%.2f")
             z = st.number_input("z", value=0.50, step=0.01, format="%.2f")
             if st.button("go_to(x, y, z)", type="primary", width='stretch'):
-                st.session_state.drive_msg = f"`go_to` → {robot.go_to(float(x), float(y), float(z))}"
+                st.session_state.drive_msg = f"`go_to` → {sim(robot.go_to, float(x), float(y), float(z))}"
         with view:
-            st.image(robot.camera(), caption="robot camera", width=384)
+            st.image(sim(robot.camera), caption="robot camera", width=384)
             st.markdown(f"```\n{robot.state_text()}\n```")
             st.markdown(st.session_state.drive_msg)
             if robot.is_success():
