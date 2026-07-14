@@ -1,5 +1,7 @@
 # lang2act
 
+<p align="center"><img src="docs/demo.gif" width="320" alt="Fetch arm picking up the block and placing it on the target"></p>
+
 **Natural-language goal in → robot motion out.** A multi-agent system that
 drives a simulated Fetch robot arm (MuJoCo) from plain-English instructions,
 powered entirely by an **open-weights vision-language model served locally** —
